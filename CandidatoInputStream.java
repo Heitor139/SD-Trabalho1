@@ -11,7 +11,7 @@ import java.io.InputStream;
 
 public class CandidatoInputStream extends InputStream {
     private InputStream origem = null;
-    private Candidato cand = null;
+    private ArrayList<Candidato> cand = new ArrayList<Candidato>();
 
     public CandidatoInputStream(InputStream origem) {
         this.origem = origem;
@@ -28,17 +28,23 @@ public class CandidatoInputStream extends InputStream {
                 }
                 origem.close();
                 String[] p = s.split(System.lineSeparator());
-                cand = new Candidato(p[0], Integer.parseInt(p[1]), p[2]);
+                for(int c = 0; c < p.length; c += 3) {
+                    cand.add(new Candidato(p[c], Integer.parseInt(p[c + 1]), p[c + 2]));
+                }
 
                 return 1;
             } else {
+                System.out.println("Quantos candidatos?");
                 Scanner scan = new Scanner(origem);
+                int c = scan.nextInt();
 
-                String nome = scan.nextLine();
-                Integer numero = scan.nextInt();
-                String partido = scan.nextLine();
+                for(int i = 0; i < c; i++) {
+                    String nome = scan.next();
+                    Integer numero = scan.nextInt();
+                    String partido = scan.next();
 
-                cand = new Candidato(nome, numero, partido);
+                    cand.add(new Candidato(nome, numero, partido));
+                }
 
                 scan.close();
                 return 1;
@@ -48,7 +54,7 @@ public class CandidatoInputStream extends InputStream {
         }
     }
 
-    public Candidato getCandidato() {
+    public ArrayList<Candidato> getCandidato() {
         return cand;
     }
 }

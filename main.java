@@ -16,8 +16,8 @@ public class main {
             input2.close();
         
 
-            Candidato cand1 = input.getCandidato();
-            Candidato cand2 = input2.getCandidato();
+            Candidato cand1 = input.getCandidato().getFirst();
+            Candidato cand2 = input2.getCandidato().getFirst();
 
             System.out.println(cand1.getNome());
             System.out.println(cand1.getNumero());
