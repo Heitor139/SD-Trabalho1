@@ -1,0 +1,4 @@
+10;Ana Lima;PARTIDO A
+20;Bruno Souza;PARTIDO B
+30;Carla Dias;PARTIDO C
+40;Diego Rocha;PARTIDO D
