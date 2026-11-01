@@ -3,6 +3,7 @@ package votacao.rpc;
 import java.io.Serializable;
 
 public final class RpcMessage implements Serializable {
+
     private static final long serialVersionUID = 1L;
     public static final int REQUEST = 0;
     public static final int REPLY = 1;
@@ -14,6 +15,7 @@ public final class RpcMessage implements Serializable {
 
     public RpcMessage(int messageType, int requestId, RemoteObjectRef objectReference,
             int methodId, byte[] arguments) {
+
         this.messageType = messageType;
         this.requestId = requestId;
         this.objectReference = objectReference;
@@ -26,4 +28,5 @@ public final class RpcMessage implements Serializable {
     public RemoteObjectRef getObjectReference() { return objectReference; }
     public int getMethodId() { return methodId; }
     public byte[] getArguments() { return arguments; }
+    
 }
