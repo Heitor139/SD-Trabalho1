@@ -1,0 +1,13 @@
+{
+  "java.project.sourcePaths": [
+    "servidor/src"
+  ],
+  "java.project.outputPath": "servidor/build",
+  "java.import.exclusions": [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/legado/**",
+    "**/bin-java/**",
+    "**/servidor/build/**"
+  ]
+}
