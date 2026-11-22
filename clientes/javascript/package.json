@@ -1,0 +1,8 @@
+{
+  "name": "cliente-comunicados",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node main.js"
+  }
+}

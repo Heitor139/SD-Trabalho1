@@ -5,3 +5,7 @@ scripts/
 docs/capturas
 docs/testes
 docs/
+servidor/build/
+**/__pycache__/
+tmp/
+legado/
