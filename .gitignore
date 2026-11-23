@@ -9,3 +9,4 @@ servidor/build/
 **/__pycache__/
 tmp/
 legado/
+.vscode/
