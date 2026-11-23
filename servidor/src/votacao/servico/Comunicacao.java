@@ -3,12 +3,11 @@ package votacao.servico;
 import java.util.List;
 import votacao.modelo.Assinatura;
 import votacao.modelo.Evento;
-import votacao.modelo.Votacao;
+import votacao.modelo.Topico;
 
 public interface Comunicacao {
-    Votacao cadastrarVotacao(Votacao votacao);
-    List<Votacao> listarVotacoes();
-    Assinatura assinar(String clienteId, String votacaoId);
+    Assinatura registrarVotoConfirmado(String clienteId, String votacaoId);
+    Assinatura assinar(String clienteId, Topico topico);
     void cancelarAssinatura(String assinaturaId);
     void publicar(Evento evento);
     List<Evento> consultarEventos(String assinaturaId);

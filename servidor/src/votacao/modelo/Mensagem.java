@@ -3,14 +3,15 @@ package votacao.modelo;
 import java.io.Serializable;
 
 public class Mensagem implements Serializable {
+    private static final long serialVersionUID = 1L;
 
     public static final String NOTIFICACAO = "NOTIFICACAO";
     public static final String ALERTA = "ALERTA";
     public static final String ATUALIZACAO = "ATUALIZACAO";
 
-    private String tipo;
-    private String mensagem;
-    private long timestamp;
+    private final String tipo;
+    private final String mensagem;
+    private final long timestamp;
 
     public Mensagem(String tipo, String mensagem) {
         this(tipo, mensagem, System.currentTimeMillis());

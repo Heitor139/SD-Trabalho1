@@ -1,37 +1,76 @@
 package votacao.servico;
 
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.UUID;
 import votacao.modelo.Assinatura;
 import votacao.modelo.Evento;
-import votacao.modelo.Votacao;
+import votacao.modelo.Topico;
 
-public final class Intermediario implements Comunicacao {
-    private final Map<String, Votacao> votacoes = new HashMap<>();
-    private final Map<String, Assinatura> assinaturas = new HashMap<>();
+public final class Intermediario implements Comunicacao, Serializable {
+    private static final long serialVersionUID = 1L;
 
-    public Votacao cadastrarVotacao(Votacao votacao) {
-        throw new UnsupportedOperationException("Ainda nao implementado");
+    private final HashMap<String, Assinatura> assinaturas = new HashMap<>();
+    private final HashMap<Topico, Map<String, Assinatura>> assinaturasPorTopico = new HashMap<>();
+
+    @Override
+    public synchronized Assinatura registrarVotoConfirmado(String clienteId, String votacaoId) {
+        return criarAssinatura(clienteId, new Topico(Topico.Tipo.VOTACAO, votacaoId));
     }
 
-    public List<Votacao> listarVotacoes() {
-        throw new UnsupportedOperationException("Ainda nao implementado");
+    @Override
+    public synchronized Assinatura assinar(String clienteId, Topico topico) {
+        if (topico.tipo() != Topico.Tipo.NOTIFICACAO) {
+            throw new IllegalArgumentException("Assinaturas de votação são criadas com a confirmação do voto.");
+        }
+        return criarAssinatura(clienteId, topico);
     }
 
-    public Assinatura assinar(String clienteId, String votacaoId) {
-        throw new UnsupportedOperationException("Ainda nao implementado");
+    @Override
+    public synchronized void cancelarAssinatura(String assinaturaId) {
+        Assinatura assinatura = obterAssinatura(assinaturaId);
+        Map<String, Assinatura> assinantes = assinaturasPorTopico.get(assinatura.getTopico());
+        assinantes.remove(assinatura.getClienteId());
+        if (assinantes.isEmpty()) {
+            assinaturasPorTopico.remove(assinatura.getTopico());
+        }
+        assinaturas.remove(assinaturaId);
     }
 
-    public void cancelarAssinatura(String assinaturaId) {
-        throw new UnsupportedOperationException("Ainda nao implementado");
+    @Override
+    public synchronized void publicar(Evento evento) {
+        Map<String, Assinatura> assinantes = assinaturasPorTopico.getOrDefault(evento.topico(), Map.of());
+        for (Assinatura assinatura : assinantes.values()) {
+            assinatura.receber(evento);
+        }
     }
 
-    public void publicar(Evento evento) {
-        throw new UnsupportedOperationException("Ainda nao implementado");
+    @Override
+    public synchronized List<Evento> consultarEventos(String assinaturaId) {
+        return obterAssinatura(assinaturaId).consultarEventos();
     }
 
-    public List<Evento> consultarEventos(String assinaturaId) {
-        throw new UnsupportedOperationException("Ainda nao implementado");
+    private Assinatura criarAssinatura(String clienteId, Topico topico) {
+        if (clienteId == null || clienteId.isBlank()) {
+            throw new IllegalArgumentException("Informe o identificador da pessoa.");
+        }
+        Map<String, Assinatura> assinantes =
+                assinaturasPorTopico.computeIfAbsent(topico, chave -> new HashMap<>());
+        return assinantes.computeIfAbsent(clienteId, cliente -> {
+            Assinatura assinatura = new Assinatura(UUID.randomUUID().toString(), cliente, topico);
+            assinaturas.put(assinatura.getId(), assinatura);
+            return assinatura;
+        });
+    }
+
+    private Assinatura obterAssinatura(String id) {
+        Assinatura assinatura = assinaturas.get(id);
+        if (assinatura == null) {
+            throw new NoSuchElementException("Assinatura inexistente.");
+        }
+        return assinatura;
     }
 }
