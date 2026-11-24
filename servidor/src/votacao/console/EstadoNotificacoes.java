@@ -4,19 +4,17 @@ import java.io.IOException;
 import java.io.ObjectInputFilter;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
-import java.util.function.Function;
-import votacao.servico.Comunicacao;
+import java.util.NoSuchElementException;
 import votacao.servico.Intermediario;
 
 final class EstadoNotificacoes {
     private static final ObjectInputFilter CLASSES_DO_ESTADO = ObjectInputFilter.Config.createFilter(
             String.join(";",
                     "votacao.servico.Intermediario",
+                    "votacao.console.EstadoNotificacoes$Registro",
                     "votacao.modelo.Assinatura",
                     "votacao.modelo.Topico",
                     "votacao.modelo.Topico$Tipo",
@@ -39,26 +37,44 @@ final class EstadoNotificacoes {
         this.estado = diretorio.resolve("estado.bin");
     }
 
-    String executar(Function<Comunicacao, String> operacao) throws IOException {
-        Files.createDirectories(diretorio);
-        Path controle = diretorio.resolve("estado.lock");
-        try (var canal = FileChannel.open(controle, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
-            canal.lock();
-            Intermediario intermediario = carregar();
-            String resultado = operacao.apply(intermediario);
-            salvar(intermediario);
-            return resultado;
-        }
+    String ultimoId() throws IOException {
+        return carregar().id();
     }
 
-    private Intermediario carregar() throws IOException {
+    String executar(String id, String[] comando) throws IOException {
+        Registro anterior = carregar();
+        if (id.equals(anterior.id())) {
+            return anterior.resultado();
+        }
+        Intermediario intermediario = anterior.intermediario();
+        String resultado;
+        try {
+            intermediario.distribuirPendencias();
+            resultado = ComandosNotificacoes.interpretar(comando).apply(intermediario);
+            intermediario.distribuirPendencias();
+        } catch (IllegalArgumentException | NoSuchElementException erro) {
+            resultado = "Erro: " + erro.getMessage();
+        }
+        salvar(new Registro(intermediario, id, resultado));
+        return resultado;
+    }
+
+    private record Registro(Intermediario intermediario, String id, String resultado)
+            implements java.io.Serializable {
+    }
+
+    private Registro carregar() throws IOException {
         if (Files.notExists(estado)) {
-            return new Intermediario();
+            return new Registro(new Intermediario(), null, null);
         }
         try (var entrada = new ObjectInputStream(Files.newInputStream(estado))) {
             entrada.setObjectInputFilter(CLASSES_DO_ESTADO);
-            if (entrada.readObject() instanceof Intermediario intermediario) {
-                return intermediario;
+            Object salvo = entrada.readObject();
+            if (salvo instanceof Registro registro) {
+                return registro;
+            }
+            if (salvo instanceof Intermediario intermediario) {
+                return new Registro(intermediario, null, null);
             }
             throw new IOException("O arquivo não contém o estado do intermediário.");
         } catch (ClassNotFoundException erro) {
@@ -66,11 +82,11 @@ final class EstadoNotificacoes {
         }
     }
 
-    private void salvar(Intermediario intermediario) throws IOException {
+    private void salvar(Registro registro) throws IOException {
         Path temporario = Files.createTempFile(diretorio, "estado-", ".tmp");
         try {
             try (var saida = new ObjectOutputStream(Files.newOutputStream(temporario))) {
-                saida.writeObject(intermediario);
+                saida.writeObject(registro);
             }
             Files.move(temporario, estado, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } finally {

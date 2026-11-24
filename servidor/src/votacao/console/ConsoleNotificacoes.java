@@ -2,103 +2,64 @@ package votacao.console;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.NoSuchElementException;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import votacao.modelo.Alerta;
-import votacao.modelo.Evento;
-import votacao.modelo.Mensagem;
-import votacao.modelo.Notificacao;
-import votacao.modelo.Topico;
-import votacao.servico.Comunicacao;
+import java.util.Arrays;
 
 public final class ConsoleNotificacoes {
-    private static final String USO = """
-            Uso: ConsoleNotificacoes <diretório de estado> <comando>
-              voto-confirmado <pessoa> <votação>
-              assinar <pessoa> <grupo de notificação>
-              publicar <VOTACAO|NOTIFICACAO> <tópico> <ALERTA|NOTIFICACAO|ATUALIZACAO> <texto>
-              consultar <id da assinatura>
-              cancelar <id da assinatura>
-            """;
-
-    private ConsoleNotificacoes() {
-    }
-
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException, InterruptedException {
         try {
-            if (args.length < 2) {
-                throw new IllegalArgumentException(USO);
+            if (args.length == 0) {
+                throw new IllegalArgumentException(ComandosNotificacoes.USO);
             }
-            Function<Comunicacao, String> operacao = interpretar(args);
-            var estado = new EstadoNotificacoes(Path.of(args[0]));
-            String resultado = estado.executar(operacao);
-            if (!resultado.isEmpty()) {
-                System.out.println(resultado);
+            var caixas = new CaixaMensagens(Path.of(args[0]));
+            if (args.length == 1) {
+                new SessaoCliente(caixas).executar();
+                return;
             }
-        } catch (IllegalArgumentException | NoSuchElementException | IOException erro) {
+            String[] comando = Arrays.copyOfRange(args, 1, args.length);
+            switch (comando[0]) {
+                case "resultado" -> {
+                    validarId(comando);
+                    String recebido = caixas.resultado(comando[1]);
+                    System.out.println(recebido == null ? "Pendente." : recebido);
+                }
+                case "acompanhar" -> {
+                    validarId(comando);
+                    acompanhar(caixas, comando[1]);
+                }
+                default -> System.out.println(enviar(caixas, comando));
+            }
+        } catch (IllegalArgumentException erro) {
             System.err.println(erro.getMessage());
             System.exit(1);
         }
     }
 
-    private static Function<Comunicacao, String> interpretar(String[] args) {
-        return switch (args[1]) {
-            case "voto-confirmado" -> {
-                validarQuantidade(args, 4);
-                yield broker -> broker.registrarVotoConfirmado(args[2], args[3]).getId();
-            }
-            case "assinar" -> {
-                validarQuantidade(args, 4);
-                var topico = new Topico(Topico.Tipo.NOTIFICACAO, args[3]);
-                yield broker -> broker.assinar(args[2], topico).getId();
-            }
-            case "publicar" -> {
-                validarQuantidade(args, 6);
-                var topico = new Topico(Topico.Tipo.valueOf(args[2]), args[3]);
-                var evento = new Evento(topico, criarMensagem(args[4], args[5]));
-                yield broker -> {
-                    broker.publicar(evento);
-                    return "Publicado em " + topico.tipo() + "/" + topico.id();
-                };
-            }
-            case "consultar" -> {
-                validarQuantidade(args, 3);
-                yield broker -> broker.consultarEventos(args[2]).stream()
-                        .map(ConsoleNotificacoes::formatarEvento)
-                        .collect(Collectors.joining(System.lineSeparator()));
-            }
-            case "cancelar" -> {
-                validarQuantidade(args, 3);
-                yield broker -> {
-                    broker.cancelarAssinatura(args[2]);
-                    return "Inscrição cancelada.";
-                };
-            }
-            default -> throw new IllegalArgumentException(USO);
-        };
+    static String enviar(CaixaMensagens caixas, String[] comando) throws IOException {
+        ComandosNotificacoes.interpretar(comando);
+        String destino = comando[0].equals("voto-confirmado") ? "votos" : "intermediario";
+        return caixas.enviar(destino, comando);
     }
 
-    private static void validarQuantidade(String[] args, int quantidade) {
-        if (args.length != quantidade) {
-            throw new IllegalArgumentException(USO);
+    static void validarId(String[] comando) {
+        if (comando.length != 2) {
+            throw new IllegalArgumentException(ComandosNotificacoes.USO);
         }
     }
 
-    private static Mensagem criarMensagem(String tipo, String texto) {
-        if (texto.isBlank()) {
-            throw new IllegalArgumentException("Informe o texto do comunicado.");
+    private static void acompanhar(CaixaMensagens caixas, String assinatura) throws IOException, InterruptedException {
+        while (!Thread.currentThread().isInterrupted()) {
+            String id = caixas.enviar("intermediario", new String[]{"consultar", assinatura});
+            String recebido;
+            while ((recebido = caixas.resultado(id)) == null) {
+                Thread.sleep(250);
+            }
+            if (!recebido.isEmpty()) {
+                System.out.println(recebido);
+            }
+            if (recebido.startsWith("Erro: ")) {
+                return;
+            }
+            Thread.sleep(2000);
         }
-        return switch (tipo) {
-            case Mensagem.ALERTA -> new Alerta(texto);
-            case Mensagem.NOTIFICACAO -> new Notificacao(texto);
-            case Mensagem.ATUALIZACAO -> new Mensagem(Mensagem.ATUALIZACAO, texto);
-            default -> throw new IllegalArgumentException("Tipo de mensagem desconhecido: " + tipo);
-        };
-    }
-
-    private static String formatarEvento(Evento evento) {
-        Topico topico = evento.topico();
-        return "[" + topico.tipo() + "/" + topico.id() + "] " + evento.mensagem();
     }
 }

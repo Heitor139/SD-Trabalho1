@@ -1,6 +1,7 @@
 package votacao.servico;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +16,8 @@ public final class Intermediario implements Comunicacao, Serializable {
 
     private final HashMap<String, Assinatura> assinaturas = new HashMap<>();
     private final HashMap<Topico, Map<String, Assinatura>> assinaturasPorTopico = new HashMap<>();
+
+    private ArrayList<Evento> publicacoesPendentes = new ArrayList<>();
 
     @Override
     public synchronized Assinatura registrarVotoConfirmado(String clienteId, String votacaoId) {
@@ -42,10 +45,28 @@ public final class Intermediario implements Comunicacao, Serializable {
 
     @Override
     public synchronized void publicar(Evento evento) {
-        Map<String, Assinatura> assinantes = assinaturasPorTopico.getOrDefault(evento.topico(), Map.of());
-        for (Assinatura assinatura : assinantes.values()) {
-            assinatura.receber(evento);
+        if (publicacoesPendentes == null) {
+            publicacoesPendentes = new ArrayList<>();
         }
+        publicacoesPendentes.add(evento);
+    }
+
+    public synchronized boolean temPublicacoesPendentes() {
+        return publicacoesPendentes != null && !publicacoesPendentes.isEmpty();
+    }
+
+    public synchronized void distribuirPendencias() {
+        if (!temPublicacoesPendentes()) {
+            return;
+        }
+        for (Evento evento : publicacoesPendentes) {
+            Map<String, Assinatura> assinantes =
+                    assinaturasPorTopico.getOrDefault(evento.topico(), Map.of());
+            for (Assinatura assinatura : assinantes.values()) {
+                assinatura.receber(evento);
+            }
+        }
+        publicacoesPendentes.clear();
     }
 
     @Override
