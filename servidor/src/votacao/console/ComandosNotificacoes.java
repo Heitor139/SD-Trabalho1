@@ -11,7 +11,7 @@ import votacao.servico.Comunicacao;
 
 final class ComandosNotificacoes {
     static final String USO = """
-            Uso: ConsoleNotificacoes <diretório de mensagens> [comando]
+            Uso: ConsoleNotificacoes <host> <porta do servidor> <porta do intermediário> [comando]
               voto-confirmado <pessoa> <votação>
               assinar <pessoa> <grupo de notificação>
               publicar <VOTACAO|NOTIFICACAO> <tópico> <ALERTA|NOTIFICACAO|ATUALIZACAO> <texto>

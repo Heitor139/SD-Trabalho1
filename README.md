@@ -1,31 +1,32 @@
 # Notificações de votação
 
-Sistema de avisos para eleições e grupos de notificação, desenvolvido para o Trabalho 4 de Sistemas Distribuídos. A confirmação de voto cria uma assinatura para os avisos da eleição. Grupos de notificação aceitam assinaturas voluntárias.
+Sistema de comunicados do Trabalho 4 de Sistemas Distribuídos. O sistema usa **publicar–assinar por rótulos, com um intermediário central**, e executa o servidor de votação, o intermediário e os clientes em processos Java separados.
 
-A aplicação usa **publicar–assinar por rótulos**, com um intermediário central. Cada rótulo combina tipo e identificador. Por exemplo, `VOTACAO/turma` e `NOTIFICACAO/turma` têm assinaturas distintas.
+- [Compilação, execução em duas máquinas e testes](servidor/README.md)
+- [Fluxo, comandos e arquivos Java](servidor/src/votacao/README.md)
+- [Diagrama de classes](servidor/diagrama-classes.md)
 
 ## Arquitetura
 
-| Processo | Responsabilidade |
-|---|---|
-| Servidor de votação | Recebe confirmações de voto e as encaminha ao intermediário. |
-| Intermediário | Mantém assinaturas, distribui publicações por rótulo e guarda os avisos pendentes. |
-| Cliente | Executa uma sessão de console para publicar, inscrever-se e acompanhar avisos. Várias instâncias podem permanecer abertas. |
+No Trabalho 2, o servidor mantinha referências RMI dos clientes e chamava cada cliente diretamente para entregar um aviso. No Trabalho 4, o servidor e os clientes se comunicam com o intermediário. RMI transporta o envio de comandos e a leitura dos recibos. O intermediário faz a distribuição por tópico e mantém as pendências em disco local.
 
-O sistema mantém papéis de cliente e servidor. A confirmação passa pelo servidor de votação, e os clientes usam o intermediário para publicar e receber avisos. Os processos Java trocam mensagens por caixas em um diretório compartilhado, que todos precisam conseguir acessar. O estado de assinaturas e avisos pertence ao intermediário.
+```mermaid
+flowchart LR
+    C[Cliente] -->|confirmação de voto por RMI| S[Servidor de votação]
+    S -->|confirmação por RMI| I[Intermediário]
+    P[Cliente publicador] -->|publicação por RMI| I
+    A[Cliente assinante] -->|inscrição e consulta por RMI| I
+    I --> D[(Estado local)]
+```
 
-## Execução e testes
-
-O [guia de execução](servidor/README.md) apresenta os requisitos, a compilação, a demonstração e os testes. O [diagrama de classes](servidor/diagrama-classes.md) mostra as dependências entre os componentes.
+Cada rótulo combina tipo e identificador. `VOTACAO/turma`, `VOTACAO/diretoria` e `NOTIFICACAO/turma` têm assinaturas independentes. Uma confirmação cria ou reutiliza a assinatura da pessoa no tópico da votação. Grupos de notificação aceitam assinaturas voluntárias. O projeto demonstra confirmações de voto e comunicados. As classes de eleitor, candidato e votação representam o domínio, e a aplicação não cadastra eleições nem apura votos.
 
 ## Relatório técnico
 
-O **desacoplamento espacial** vem do endereçamento por rótulo. O publicador precisa informar o tópico e o conteúdo do aviso. O intermediário encontra as assinaturas correspondentes. O **desacoplamento temporal** vem da retenção. Uma publicação pode ser enfileirada com o intermediário ou o assinante desligado. O assinante pode voltar e consultar a mesma assinatura.
+**Desacoplamento espacial.** A publicação contém o rótulo e a mensagem. O publicador configura o endereço do intermediário. Os assinantes são localizados pelo índice de tópicos do intermediário, que guarda os avisos por ID de assinatura.
 
-O cliente obtém um protocolo ao enfileirar o comando e exibe o recibo quando ele fica disponível. No modo de acompanhamento, o cliente consulta os avisos periodicamente. O recebimento depende da leitura da caixa pelo cliente. A publicação segue sem aguardar a leitura do aviso.
+**Desacoplamento temporal.** O publicador recebe um protocolo quando o intermediário grava o comando em sua fila. Essa chamada RMI espera a confirmação do intermediário. A entrega aos assinantes é assíncrona. O cliente pode fechar a sessão e consultar os avisos mais tarde. Para aceitar uma nova publicação, o intermediário precisa estar acessível. O servidor de votação também depende dele para encaminhar confirmações.
 
-O intermediário recupera seu estado ao reiniciar com o mesmo diretório. O resultado da última operação fica junto ao estado para permitir a recuperação do recibo caso o processo caia entre gravar o estado e retirar o comando da entrada. Os recibos permanecem em disco. Uma consulta consome o lote de avisos, que continua acessível pelo protocolo do recibo.
+**Recuperação.** Comandos aceitos e avisos pendentes ficam no disco do intermediário. Ao reiniciar com o mesmo diretório, ele retoma o processamento. O último protocolo e seu resultado são gravados junto ao estado para recompor o recibo em caso de interrupção. Uma consulta consome os avisos da assinatura. O resultado segue consultável pelo protocolo do recibo. O acompanhamento automático não mostra o protocolo de cada consulta.
 
-Para N assinantes do tópico, o intermediário insere o evento em N caixas. O índice por rótulo restringe esse trabalho ao tópico de destino. O estado completo é lido e gravado a cada operação, e a consulta periódica adiciona latência. O log do intermediário mede o processamento da publicação. Para observar o custo até a entrega, meça também o tempo até a exibição no cliente, mantendo o texto constante e variando o número de assinaturas. Agrupar gravações pode reduzir o custo de disco. Aumentar o intervalo de consulta reduz acessos e aumenta o tempo para exibir avisos.
-
-A aplicação usa confirmações de voto como entrada para o serviço de notificações. O escopo da demonstração abrange assinaturas, publicação e entrega de avisos.
+**Custo.** Além das chamadas RMI, a fila e os recibos exigem gravações em disco. O intermediário carrega e regrava o estado a cada comando. O índice limita a distribuição ao rótulo de destino, com uma inserção por assinatura correspondente. O log mede o tempo de processamento da publicação no intermediário. Compare várias rodadas com a mesma mensagem e números diferentes de assinantes. Meça separadamente o tempo até exibir o aviso no cliente, que inclui a rede e a espera pela próxima consulta.

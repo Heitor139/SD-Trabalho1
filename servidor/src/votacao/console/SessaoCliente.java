@@ -8,14 +8,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 final class SessaoCliente {
-    private final CaixaMensagens caixas;
+    private final ClienteRede rede;
     private final ConcurrentHashMap<String, String> pendentes = new ConcurrentHashMap<>();
     private final AtomicReference<String> assinaturaAcompanhada = new AtomicReference<>();
     private String assinaturaConsultada;
     private String consultaEmAndamento;
 
-    SessaoCliente(CaixaMensagens caixas) {
-        this.caixas = caixas;
+    SessaoCliente(ClienteRede rede) {
+        this.rede = rede;
     }
 
     void executar() {
@@ -54,11 +54,11 @@ final class SessaoCliente {
                 }
                 case "resultado" -> {
                     ConsoleNotificacoes.validarId(argumentos);
-                    String resultado = caixas.resultado(argumentos[1]);
+                    String resultado = rede.resultado(argumentos[1]);
                     System.out.println(resultado == null ? "Pendente." : resultado);
                 }
                 default -> {
-                    String id = ConsoleNotificacoes.enviar(caixas, argumentos);
+                    String id = rede.enviar(argumentos);
                     System.out.println("Enfileirado: " + id);
                     pendentes.put(id, argumentos[0]);
                 }
@@ -71,7 +71,7 @@ final class SessaoCliente {
     private void mostrarRecibos() {
         try {
             for (var comando : pendentes.entrySet()) {
-                String retorno = caixas.resultado(comando.getKey());
+                String retorno = rede.resultado(comando.getKey());
                 if (retorno != null) {
                     pendentes.remove(comando.getKey());
                     String mensagem = retorno.isEmpty() ? "Sem avisos." : retorno;
@@ -86,7 +86,7 @@ final class SessaoCliente {
     private void consultarAssinatura() {
         try {
             if (consultaEmAndamento != null) {
-                String retorno = caixas.resultado(consultaEmAndamento);
+                String retorno = rede.resultado(consultaEmAndamento);
                 if (retorno == null) {
                     return;
                 }
@@ -101,7 +101,7 @@ final class SessaoCliente {
             String assinatura = assinaturaAcompanhada.get();
             if (assinatura != null) {
                 assinaturaConsultada = assinatura;
-                consultaEmAndamento = ConsoleNotificacoes.enviar(caixas, new String[]{"consultar", assinatura});
+                consultaEmAndamento = rede.enviar(new String[]{"consultar", assinatura});
             }
         } catch (IOException erro) {
             System.err.println("Falha ao acompanhar avisos: " + erro.getMessage());

@@ -5,13 +5,18 @@ O diagrama mostra as classes que participam do fluxo de comunicação. `Votacao`
 ```mermaid
 classDiagram
     direction TB
-    ConsoleNotificacoes ..> SessaoCliente : inicia sessão interativa
-    SessaoCliente ..> CaixaMensagens : acompanha recibos e avisos
-    ConsoleNotificacoes ..> CaixaMensagens : enfileira e consulta recibos
-    ServidorVotacao ..> CaixaMensagens : encaminha confirmação
-    ServidorIntermediario ..> CaixaMensagens : lê entradas e grava recibos
+    ConsoleNotificacoes ..> SessaoCliente : inicia sessão
+    ConsoleNotificacoes ..> ClienteRede
+    SessaoCliente ..> ClienteRede
+    ClienteRede ..> RmiNotificacoes : localiza serviço
+    ClienteRede ..> RedeNotificacoes : chama por RMI
+    ServidorVotacao ..|> RedeNotificacoes
+    ServidorVotacao ..> RmiNotificacoes : encaminha confirmação
+    ServidorIntermediario ..|> RedeNotificacoes
+    ServidorIntermediario ..> RmiNotificacoes : registra serviço
+    ServidorIntermediario ..> CaixaMensagens : fila e recibos locais
+    ServidorIntermediario ..> EstadoNotificacoes : processa comando
     EstadoNotificacoes ..> ComandosNotificacoes : interpreta comando
-    ServidorIntermediario ..> EstadoNotificacoes : executa e distribui
     ComandosNotificacoes ..> Comunicacao
     EstadoNotificacoes ..> Intermediario : carrega e salva
     Intermediario ..|> Comunicacao
@@ -24,6 +29,11 @@ classDiagram
     Topico --> Tipo : rótulo
     Mensagem <|-- Notificacao
     Mensagem <|-- Alerta
+    class RedeNotificacoes {
+        <<interface>>
+        +enviar(comando) String
+        +resultado(protocolo) String
+    }
     class Comunicacao {
         <<interface>>
         +registrarVotoConfirmado(clienteId, votacaoId) Assinatura

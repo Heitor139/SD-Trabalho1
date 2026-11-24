@@ -1,20 +1,36 @@
 package votacao.console;
 
-import java.io.IOException;
-import java.nio.file.Path;
+import java.rmi.RemoteException;
 
-public final class ServidorVotacao {
-    public static void main(String[] args) throws IOException, InterruptedException {
-        if (args.length != 1) {
-            throw new IllegalArgumentException("Uso: ServidorVotacao <diretório de mensagens>");
+public final class ServidorVotacao implements RedeNotificacoes {
+    private final String hostIntermediario;
+    private final int portaIntermediario;
+
+    private ServidorVotacao(String hostIntermediario, int portaIntermediario) {
+        this.hostIntermediario = hostIntermediario;
+        this.portaIntermediario = portaIntermediario;
+    }
+
+    public static void main(String[] args) throws RemoteException {
+        if (args.length != 4) {
+            throw new IllegalArgumentException(
+                    "Uso: ServidorVotacao <host anunciado> <porta> <host intermediário> <porta intermediário>");
         }
-        var caixas = new CaixaMensagens(Path.of(args[0]));
-        System.out.println("Servidor de votação pronto.");
-        while (true) {
-            for (Path mensagem : caixas.pendentes("votos")) {
-                caixas.encaminhar("intermediario", mensagem);
-            }
-            Thread.sleep(250);
+        var servidor = new ServidorVotacao(args[2], Integer.parseInt(args[3]));
+        RmiNotificacoes.publicar(args[0], Integer.parseInt(args[1]), servidor);
+        System.out.println("Servidor de votação pronto na porta " + args[1] + ".");
+    }
+
+    @Override
+    public String enviar(String[] comando) throws RemoteException {
+        if (comando == null || comando.length != 3 || !"voto-confirmado".equals(comando[0])) {
+            throw new IllegalArgumentException("O servidor recebe confirmações de voto.");
         }
+        return RmiNotificacoes.conectar(hostIntermediario, portaIntermediario).enviar(comando);
+    }
+
+    @Override
+    public String resultado(String protocolo) throws RemoteException {
+        throw new RemoteException("Consulte o recibo no intermediário.");
     }
 }

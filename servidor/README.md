@@ -1,84 +1,57 @@
-# Guia de execução
+# Executar o sistema
 
-O sistema roda com JDK 17 ou superior. Execute os comandos desta página no PowerShell, a partir da raiz do repositório.
-
-Para entender os comandos, o fluxo de mensagens e os arquivos Java, consulte o [guia interno do pacote votacao](src/votacao/README.md).
-
-## Compilar
+Requisitos: JDK 17 ou superior e PowerShell. Execute os comandos na raiz do repositório. Para entender os arquivos Java e o fluxo, consulte o [guia do pacote votacao](src/votacao/README.md).
 
 ```powershell
 New-Item -ItemType Directory -Force servidor/build-trabalho4 | Out-Null
 javac --release 17 -encoding UTF-8 -d servidor/build-trabalho4 (Get-ChildItem servidor/src -Recurse -Filter *.java | ForEach-Object FullName)
 ```
 
-## Iniciar os processos
+## Servidor e intermediário
 
-Os quatro terminais abaixo são janelas independentes da mesma demonstração. Execute um comando de inicialização por terminal. O servidor de votação, o intermediário e cada cliente permanecem em execução. Use o mesmo diretório de mensagens em todos os comandos. Para começar com estado vazio, escolha um novo caminho.
+Na máquina A, abra dois terminais e deixe os processos rodando. Use o IPv4 da máquina A no lugar de `192.168.1.20`. Em uma demonstração com todos os processos na mesma máquina, use `127.0.0.1`.
 
-**Terminal 1 — Intermediário**
-
-```powershell
-java -cp servidor/build-trabalho4 votacao.console.ServidorIntermediario servidor/build-trabalho4/demo
-```
-
-**Terminal 2 — Servidor de votação**
+Terminal 1, intermediário na porta 1099:
 
 ```powershell
-java -cp servidor/build-trabalho4 votacao.console.ServidorVotacao servidor/build-trabalho4/demo
+java -cp servidor/build-trabalho4 votacao.console.ServidorIntermediario 192.168.1.20 1099 servidor/build-trabalho4/estado-demo
 ```
 
-**Terminais 3 e 4 — Clientes**
+O primeiro argumento é o endereço anunciado aos clientes. O último é o diretório de estado local. Use o mesmo diretório ao reiniciar para preservar assinaturas e pendências.
 
-Execute o mesmo comando nos dois terminais. Nesta demonstração, o primeiro cliente acompanha avisos e o segundo publica. Qualquer sessão pode fazer as duas coisas.
+Terminal 2, servidor de votação na porta 1100:
 
 ```powershell
-java -cp servidor/build-trabalho4 votacao.console.ConsoleNotificacoes servidor/build-trabalho4/demo
+java -cp servidor/build-trabalho4 votacao.console.ServidorVotacao 192.168.1.20 1100 192.168.1.20 1099
 ```
 
-## Publicar e acompanhar avisos
+Os dois primeiros argumentos são o endereço anunciado e a porta do servidor de votação. Os dois seguintes apontam para o intermediário.
 
-Os próximos comandos são digitados **dentro do cliente**, depois de iniciá-lo. Digite `ajuda` para ver os comandos ou `sair` para encerrar a sessão.
+## Clientes
 
-No cliente assinante, confirme um voto na eleição `turma`.
+Na máquina B, compile o projeto e execute o comando abaixo em cada terminal de cliente. As máquinas precisam estar na mesma rede, com acesso às portas TCP 1099 e 1100 da máquina A.
 
-```text
-voto-confirmado ana turma
+```powershell
+java -cp servidor/build-trabalho4 votacao.console.ConsoleNotificacoes 192.168.1.20 1100 1099
 ```
 
-A sessão mostra o protocolo de envio e, após o processamento, exibe `[voto-confirmado]` seguido do ID da assinatura. Copie esse ID.
+A sessão fica aberta e recebe comandos pelo console. Digite `ajuda` para listar os comandos e `sair` para encerrar. O publicador e o assinante usam o mesmo programa.
 
-```text
-acompanhar <id-da-assinatura>
-```
+## Demonstração
 
-No cliente publicador, envie um alerta para o rótulo `VOTACAO/turma`. Digite o texto da mensagem sem aspas.
+1. No primeiro cliente, digite `voto-confirmado ana turma`. Aguarde o ID da assinatura e use `acompanhar <id-da-assinatura>`.
+2. No segundo cliente, repita o procedimento com `voto-confirmado bia diretoria`.
+3. Em um cliente publicador, digite `publicar VOTACAO turma ALERTA Aviso para a turma.` e `publicar VOTACAO diretoria ALERTA Aviso para a diretoria.`. Ana e Bia devem receber apenas o evento de seu tópico.
+4. Encerre o cliente de Ana com `sair`. Publique outro aviso para `turma` e aguarde o recibo. Reinicie o intermediário com o mesmo diretório e reabra o cliente de Ana. Use `consultar <id-da-assinatura>` com o ID original para recuperar o aviso.
 
-```text
-publicar VOTACAO turma ALERTA A votação encerra às 17h.
-```
+A linha `Enfileirado:` mostra o protocolo. O recibo aparece depois. O comando `resultado <protocolo>` recupera o recibo de uma operação específica.
 
-O cliente assinante exibe o alerta quando consulta sua caixa. O comando `parar-acompanhamento` suspende as consultas automáticas e mantém a sessão aberta. O comando `consultar <id-da-assinatura>` faz uma consulta avulsa.
+## Teste de integração
 
-## Demonstrar retenção e roteamento
-
-1. No assinante, digite `sair`. No publicador, publique outro alerta em `VOTACAO/turma`.
-2. Reinicie somente o cliente assinante e retome o acompanhamento com o mesmo ID. O aviso publicado durante a ausência deve aparecer.
-3. Para testar a recuperação do intermediário, encerre-o com Ctrl+C e publique mais um aviso. O publicador recebe um protocolo. Reinicie o intermediário com o mesmo diretório e observe o recibo e a entrega.
-4. Para testar rótulos distintos, use `assinar ana turma` para criar uma assinatura no grupo `NOTIFICACAO/turma`. Publique com `publicar NOTIFICACAO turma NOTIFICACAO Aviso do grupo.` e consulte o ID do grupo. O aviso vai para o grupo, separado da assinatura de votação.
-
-O comando `resultado <protocolo>` recupera um recibo anterior, inclusive depois de reabrir o cliente. Também é possível passar um comando após o diretório na linha de inicialização para executar uma operação avulsa em scripts.
-
-## Teste automatizado
-
-Compile o projeto e execute o teste com Python 3. O teste inicia os processos e usa um diretório temporário.
+Compile primeiro e execute com Python 3:
 
 ```powershell
 python -X utf8 testes/teste_integracao.py
 ```
 
-| Critério | Evidência |
-|---|---|
-| Corretude arquitetural (40%) | Entrega para dois assinantes do mesmo rótulo, separação de tipos com o mesmo nome e comandos que endereçam tópicos. |
-| Robustez (30%) | Publicação com o intermediário e o destinatário desligados, recuperação após reinício e tratamento de cancelamento e entrada inválida. |
-| Relatório (20%) | Comparação do tempo de processamento no log e do tempo até a exibição no cliente, em rodadas com diferentes quantidades de assinaturas. |
-| Demonstração (10%) | Execução das sessões e recebimento de um aviso publicado durante a ausência do destinatário. |
+O teste inicia processos separados usando RMI em loopback. Verifica duas eleições, um grupo com nome igual ao de uma eleição, entrega a dois assinantes, retenção para um assinante desligado, recuperação após reinício do intermediário e cancelamento.

@@ -1,140 +1,141 @@
 from pathlib import Path
-import subprocess
 import re
+import socket
+import subprocess
 import tempfile
 import time
-import uuid
 
 BUILD = Path(__file__).resolve().parents[1] / "servidor/build-trabalho4"
 JAVA = ["java", "-cp", str(BUILD)]
+HOST = "127.0.0.1"
 
 
-def comando(raiz, *args):
-    return subprocess.check_output(
-        JAVA + ["votacao.console.ConsoleNotificacoes", str(raiz), *args],
-        text=True, timeout=30,
-    ).strip()
-
-
-def parar(processo):
-    if processo.poll() is None:
-        processo.terminate()
-    processo.wait(timeout=10)
+def portas_livres():
+    with socket.socket() as primeira, socket.socket() as segunda:
+        for porta in (primeira, segunda):
+            porta.bind((HOST, 0))
+        return str(primeira.getsockname()[1]), str(segunda.getsockname()[1])
 
 
 def aguardar(condicao):
-    prazo = time.monotonic() + 30
-    while not condicao():
-        assert time.monotonic() < prazo, "Tempo esgotado aguardando o arquivo."
+    prazo = time.monotonic() + 35
+    while time.monotonic() < prazo:
+        valor = condicao()
+        if valor:
+            return valor
         time.sleep(0.1)
-
-
-def recibo(raiz, identificador):
-    arquivo = raiz / "recibos" / identificador
-    aguardar(arquivo.is_file)
-    return arquivo.read_text(encoding="utf-8")
-
-
-def postar(raiz, *args):
-    pasta = raiz / "intermediario"
-    pasta.mkdir(exist_ok=True)
-    identificador = f"{time.time_ns() // 1_000_000}-{uuid.uuid4()}"
-    temporario = pasta / (identificador + ".tmp")
-    temporario.write_text("\n".join(args) + "\n", encoding="utf-8")
-    temporario.rename(pasta / identificador)
-    return identificador
+    raise AssertionError("Tempo esgotado aguardando o processo.")
 
 
 def verificar(raiz):
+    porta_votos, porta_broker = portas_livres()
     processos = []
 
-    def iniciar(classe):
-        processo = subprocess.Popen(JAVA + ["votacao.console." + classe, str(raiz)],
-                                    stdout=subprocess.DEVNULL)
-        processos.append(processo)
-        return processo
-
-    def executar(*args):
-        return recibo(raiz, postar(raiz, *args))
-
-    def iniciar_cliente(nome):
+    def iniciar(nome, classe, *args, cliente=False):
         log = raiz / (nome + ".log")
-        with log.open("wb") as saida:
+        with log.open("ab") as saida:
             processo = subprocess.Popen(
-                JAVA + ["votacao.console.ConsoleNotificacoes", str(raiz)],
-                stdin=subprocess.PIPE, stdout=saida, text=True,
+                JAVA + ["votacao.console." + classe, *args], cwd=raiz,
+                stdin=subprocess.PIPE if cliente else subprocess.DEVNULL,
+                stdout=saida, stderr=subprocess.STDOUT, text=True,
             )
         processos.append(processo)
         return processo, log
 
-    def digitar(cliente, comando):
-        cliente.stdin.write(comando + "\n")
-        cliente.stdin.flush()
+    def broker(nome):
+        processo, log = iniciar(nome, "ServidorIntermediario", HOST, porta_broker, str(raiz / "estado"))
+        aguardar(lambda: b"pronto na porta" in log.read_bytes())
+        return processo
 
-    def verificar_sessoes():
-        assinante, log_assinante = iniciar_cliente("assinante")
-        publicador, log_publicador = iniciar_cliente("publicador")
-        digitar(assinante, "voto-confirmado carla teste-sessao")
-        padrao = rb"\[voto-confirmado\] ([a-f0-9-]{36})"
-        aguardar(lambda: re.search(padrao, log_assinante.read_bytes()))
-        assinatura = re.search(padrao, log_assinante.read_bytes()).group(1).decode("ascii")
-        digitar(assinante, "acompanhar " + assinatura)
-        aguardar(lambda: b"Acompanhando " in log_assinante.read_bytes())
-        for texto in ("primeiro aviso com espacos", "segundo aviso na mesma sessao"):
-            digitar(publicador, "publicar VOTACAO teste-sessao ALERTA " + texto)
-            aguardar(lambda: texto.encode("ascii") in log_assinante.read_bytes())
-        aguardar(lambda: log_publicador.read_bytes().count(b"[publicar]") == 2)
-        for cliente in (assinante, publicador):
-            assert cliente.poll() is None
-            digitar(cliente, "sair")
-            assert cliente.wait(timeout=10) == 0
+    def cliente(nome):
+        return iniciar(nome, "ConsoleNotificacoes", HOST, porta_votos, porta_broker, cliente=True)
+
+    def digitar(processo, comando):
+        assert processo.poll() is None
+        processo.stdin.write(comando + "\n")
+        processo.stdin.flush()
+
+    def obter_id(processo, log, comando):
+        posicao = log.stat().st_size
+        digitar(processo, comando)
+        nome = comando.split()[0]
+        padrao = rb"\[" + nome.encode("ascii") + rb"\] ([a-f0-9-]{36})"
+        encontrado = aguardar(lambda: re.search(padrao, log.read_bytes()[posicao:]))
+        return encontrado.group(1).decode("ascii")
+
+    def publicar(processo, log, rotulo, texto, tipo="VOTACAO"):
+        posicao = log.stat().st_size
+        digitar(processo, f"publicar {tipo} {rotulo} ALERTA {texto}")
+        recibo = f"[publicar] Publicado em {tipo}/{rotulo}".encode("ascii")
+        aguardar(lambda: recibo in log.read_bytes()[posicao:])
+
+    def sair(processo):
+        digitar(processo, "sair")
+        assert processo.wait(timeout=10) == 0
 
     try:
-        voto = comando(raiz, "voto-confirmado", "ana", "turma")
-        assert (raiz / "votos" / voto).is_file()
-        assert comando(raiz, "resultado", voto) == "Pendente."
-        iniciar("ServidorVotacao")
-        broker = iniciar("ServidorIntermediario")
-        ana = recibo(raiz, voto)
-        bia = executar("voto-confirmado", "bia", "turma")
-        grupo = executar("assinar", "ana", "turma")
-        assert len({ana, bia, grupo}) == 3
-        assert executar("voto-confirmado", "ana", "turma") == ana
+        intermediario = broker("broker")
+        _, log_servidor = iniciar("servidor", "ServidorVotacao", HOST, porta_votos, HOST, porta_broker)
+        aguardar(lambda: b"pronto na porta" in log_servidor.read_bytes())
+        ana, log_ana = cliente("ana")
+        bia, log_bia = cliente("bia")
+        caio, log_caio = cliente("caio")
+        editor, log_editor = cliente("editor")
+        id_ana = obter_id(ana, log_ana, "voto-confirmado ana turma")
+        assert obter_id(ana, log_ana, "voto-confirmado ana turma") == id_ana
+        id_bia = obter_id(bia, log_bia, "voto-confirmado bia diretoria")
+        id_caio = obter_id(caio, log_caio, "voto-confirmado caio turma")
+        id_grupo = obter_id(bia, log_bia, "assinar bia turma")
+        assert len({id_ana, id_bia, id_caio, id_grupo}) == 4
 
-        executar("publicar", "VOTACAO", "turma", "ALERTA", "aviso inicial")
-        assert "aviso inicial" in executar("consultar", ana)
-        parar(broker)
-        aviso = comando(raiz, "publicar", "VOTACAO", "turma", "ALERTA", "aviso sem processos")
-        assert (raiz / "intermediario" / aviso).is_file()
-        assert not (raiz / "recibos" / aviso).exists()
-        iniciar("ServidorIntermediario")
-        assert "VOTACAO/turma" in recibo(raiz, aviso)
+        digitar(ana, "acompanhar " + id_ana)
+        digitar(bia, "acompanhar " + id_bia)
+        digitar(caio, "acompanhar " + id_caio)
+        publicar(editor, log_editor, "turma", "aviso da turma")
+        publicar(editor, log_editor, "diretoria", "aviso da diretoria")
+        publicar(editor, log_editor, "turma", "aviso do grupo", tipo="NOTIFICACAO")
+        aguardar(lambda: b"aviso da turma" in log_ana.read_bytes())
+        aguardar(lambda: b"aviso da turma" in log_caio.read_bytes())
+        aguardar(lambda: b"aviso da diretoria" in log_bia.read_bytes())
+        digitar(bia, "consultar " + id_grupo)
+        aguardar(lambda: b"[NOTIFICACAO/turma] [ALERTA] aviso do grupo" in log_bia.read_bytes())
+        assert b"aviso da turma" not in log_bia.read_bytes()
+        assert b"aviso da diretoria" not in log_ana.read_bytes()
+        assert b"aviso do grupo" not in log_ana.read_bytes()
 
-        executar("publicar", "NOTIFICACAO", "turma", "NOTIFICACAO", "mesmo nome")
-        executar("publicar", "VOTACAO", "outra", "ALERTA", "outro destino")
-        consulta = comando(raiz, "consultar", ana)
-        lote_ana = recibo(raiz, consulta)
-        assert comando(raiz, "resultado", consulta) == lote_ana
-        lote_bia = executar("consultar", bia)
-        lote_grupo = executar("consultar", grupo)
-        assert "aviso sem processos" in lote_ana and len(lote_ana.splitlines()) == 1, lote_ana
-        assert lote_bia.index("aviso inicial") < lote_bia.index("aviso sem processos"), lote_bia
-        assert len(lote_bia.splitlines()) == 2, lote_bia
-        assert "mesmo nome" in lote_grupo and len(lote_grupo.splitlines()) == 1, lote_grupo
-        assert executar("consultar", ana) == ""
-        executar("cancelar", grupo)
-        assert executar("consultar", grupo).startswith("Erro:")
-        assert executar("publicar", "INVALIDO", "turma", "ALERTA", "erro").startswith("Erro:")
-        verificar_sessoes()
-        print("OK: duas sessoes abertas, dois avisos e encerramento por sair.")
-        print("OK: publicacao com assinante e intermediario desligados, recuperacao e roteamento por rotulo.")
-        print("OK: servidor de votacao, dois assinantes, ordem, consumo, cancelamento e entrada invalida.")
+        sair(ana)
+        publicar(editor, log_editor, "turma", "aviso para assinante desligado")
+        intermediario.terminate()
+        intermediario.wait(timeout=10)
+        posicao = log_editor.stat().st_size
+        digitar(editor, "publicar VOTACAO turma ALERTA tentativa sem intermediario")
+        aguardar(lambda: b"Connection refused" in log_editor.read_bytes()[posicao:]
+                 or b"Falha de" in log_editor.read_bytes()[posicao:])
+        broker("broker-reiniciado")
+
+        ana, log_ana = cliente("ana-retorno")
+        digitar(ana, "consultar " + id_ana)
+        aguardar(lambda: b"aviso para assinante desligado" in log_ana.read_bytes())
+        digitar(ana, "consultar " + id_ana)
+        aguardar(lambda: b"[consultar] Sem avisos." in log_ana.read_bytes())
+        digitar(ana, "cancelar " + id_ana)
+        aguardar(lambda: b"[cancelar]" in log_ana.read_bytes())
+        digitar(ana, "consultar " + id_ana)
+        aguardar(lambda: b"[consultar] Erro:" in log_ana.read_bytes())
+        print("OK: RMI, sessoes persistentes, dois topicos de votacao e grupo com o mesmo nome.")
+        print("OK: fan-out, assinante offline, reinicio do intermediario, consumo e cancelamento.")
+    except Exception:
+        for log in raiz.glob("*.log"):
+            print(log.name, log.read_bytes().decode(errors="replace"))
+        raise
     finally:
         for processo in reversed(processos):
-            parar(processo)
+            if processo.poll() is None:
+                processo.terminate()
+            processo.wait(timeout=10)
 
 
 if __name__ == "__main__":
-    with tempfile.TemporaryDirectory(prefix="votacao-t4-", dir=BUILD) as diretorio:
+    with tempfile.TemporaryDirectory(prefix="votacao-rmi-", dir=BUILD) as diretorio:
         verificar(Path(diretorio))
 

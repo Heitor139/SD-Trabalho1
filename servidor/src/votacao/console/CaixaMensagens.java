@@ -35,11 +35,6 @@ final class CaixaMensagens {
         }
     }
 
-    void encaminhar(String caixa, Path mensagem) throws IOException {
-        Path destino = Files.createDirectories(raiz.resolve(caixa)).resolve(mensagem.getFileName());
-        Files.move(mensagem, destino, StandardCopyOption.ATOMIC_MOVE);
-    }
-
     void registrar(String id, String resultado) throws IOException {
         gravar(raiz.resolve("recibos").resolve(id), resultado);
     }

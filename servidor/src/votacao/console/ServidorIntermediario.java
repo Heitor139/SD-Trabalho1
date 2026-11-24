@@ -6,13 +6,42 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.rmi.RemoteException;
 
-public final class ServidorIntermediario {
-    public static void main(String[] args) throws IOException, InterruptedException {
-        if (args.length != 1) {
-            throw new IllegalArgumentException("Uso: ServidorIntermediario <diretório de mensagens>");
+public final class ServidorIntermediario implements RedeNotificacoes {
+    private final CaixaMensagens caixas;
+
+    private ServidorIntermediario(CaixaMensagens caixas) {
+        this.caixas = caixas;
+    }
+
+    @Override
+    public String enviar(String[] comando) throws RemoteException {
+        if (comando == null) {
+            throw new IllegalArgumentException("Informe um comando.");
         }
-        Path raiz = Files.createDirectories(Path.of(args[0]));
+        ComandosNotificacoes.interpretar(comando);
+        try {
+            return caixas.enviar("intermediario", comando);
+        } catch (IOException erro) {
+            throw new RemoteException("Não foi possível enfileirar o comando.", erro);
+        }
+    }
+
+    @Override
+    public String resultado(String protocolo) throws RemoteException {
+        try {
+            return caixas.resultado(protocolo);
+        } catch (IOException erro) {
+            throw new RemoteException("Não foi possível ler o recibo.", erro);
+        }
+    }
+
+    public static void main(String[] args) throws IOException, InterruptedException {
+        if (args.length != 3) {
+            throw new IllegalArgumentException("Uso: ServidorIntermediario <host anunciado> <porta> <diretório de estado>");
+        }
+        Path raiz = Files.createDirectories(Path.of(args[2]));
         var caixas = new CaixaMensagens(raiz);
         var estado = new EstadoNotificacoes(raiz);
         try (var canal = FileChannel.open(raiz.resolve("estado.lock"), StandardOpenOption.CREATE,
@@ -20,7 +49,6 @@ public final class ServidorIntermediario {
             if (bloqueio == null) {
                 throw new IOException("Já existe um intermediário neste diretório.");
             }
-            System.out.println("Intermediário pronto.");
             String ultimoId = estado.ultimoId();
             if (ultimoId != null) {
                 Path ultimaMensagem = raiz.resolve("intermediario").resolve(ultimoId);
@@ -28,6 +56,8 @@ public final class ServidorIntermediario {
                     processar(caixas, estado, ultimaMensagem);
                 }
             }
+            RmiNotificacoes.publicar(args[0], Integer.parseInt(args[1]), new ServidorIntermediario(caixas));
+            System.out.println("Intermediário pronto na porta " + args[1] + ".");
             Path falhaAnterior = null;
             while (true) {
                 var pendentes = caixas.pendentes("intermediario");
@@ -48,6 +78,9 @@ public final class ServidorIntermediario {
                 }
                 Thread.sleep(250);
             }
+        } catch (IOException | RuntimeException erro) {
+            System.err.println(erro.getMessage());
+            System.exit(1);
         }
     }
 
