@@ -1,6 +1,6 @@
 # Notificações de votação
 
-Sistema de comunicados do Trabalho 4 de Sistemas Distribuídos. O sistema usa **publicar–assinar por rótulos, com um intermediário central**, e executa o servidor de votação, o intermediário e os clientes em processos Java separados.
+Sistema de comunicados do Trabalho 3 de Sistemas Distribuídos. O sistema usa **publicar–assinar por rótulos, com um intermediário central**, e executa o servidor de votação, o intermediário e os clientes em processos Java separados.
 
 - [Compilação, execução em duas máquinas e testes](servidor/README.md)
 - [Fluxo, comandos e arquivos Java](servidor/src/votacao/README.md)
